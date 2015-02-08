@@ -3252,6 +3252,7 @@ class NavigationBase(object):
             'key_press_event', self._key_press)
 
         self._tools = {}
+        self._radio_groups = {}
         self._keys = {}
         self._toggled = {}
         self._callbacks = cbook.CallbackRegistry()
@@ -3440,8 +3441,42 @@ class NavigationBase(object):
                 self._toggled.setdefault(None, set())
             else:
                 self._toggled.setdefault(tool_cls.radio_group, None)
+            self.add_tool_to_radio_group(name, tool_cls.radio_group)
 
         self._tool_added_event(self._tools[name], group, position)
+
+    def add_tool_to_radio_group(self, tool, group):
+        self._radio_groups.setdefault(group, {'tools': [], 'options': {}})
+        self._radio_groups[group]['tools'].append(tool)
+
+    def set_radio_group_options(self, name, options):
+        """Sets options for the radio group
+        Parameters
+        ----------
+        name : string
+            The name of the radio group to set the options for.
+        options : dict
+            The options to set.
+
+        Notes
+        -----
+        Valid options:
+
+        ====        ===========
+        Key         Description
+        ====        ===========
+        required    Defaults to False, if True, then this radio group will
+                    always have a tool selected, note this gets used in
+                    combination with the *default* option.
+        default     The name of the tool to set pre-toggled.
+                    If not set and this group has *required* set, then the
+                    1st tool in the radio group gets used.
+        """
+        self._radio_groups[name]['options'] = options
+        if 'default' in options and self._toggled.get(name) is None:
+            self.tool_trigger_event(options['default'])
+        elif options.get('required'):
+            self.tool_trigger_event(self._radio_groups[name]['tools'][0])
 
     def _tool_added_event(self, tool, group, position):
         s = 'tool_added_event'
@@ -3519,6 +3554,13 @@ class NavigationBase(object):
         if name not in self._tools:
             warnings.warn("%s is not a tool controlled by Navigation" % name)
             return
+
+        tool = self.get_tool(name)
+
+        rg = getattr(tool, 'radio_group', None)
+        if rg and self._radio_groups[rg]['options'].get('required') and \
+                    self._toggled[rg] == name and sender is not self:
+            raise Exception('Radio group %s requires a selected tool.'%rg)
 
         if sender is None:
             sender = self
@@ -3640,7 +3682,10 @@ class ToolbarBase(object):
             Name(id) of the tool triggered from within the toolbar
 
         """
-        self.navigation.tool_trigger_event(name, sender=self)
+        try:
+            self.navigation.tool_trigger_event(name, sender=self)
+        except:
+            self.toggle_toolitem(name)
 
     def add_toolitem(self, name, group, position, image, description, toggle):
         """Add a toolitem to the toolbar
