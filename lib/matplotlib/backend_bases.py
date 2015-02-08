@@ -3593,7 +3593,8 @@ class NavigationBase(object):
         name = self._keys.get(event.key, None)
         if name is None:
             return
-        self.tool_trigger_event(name, canvasevent=event)
+        try: self.tool_trigger_event(name, canvasevent=event)
+        except : pass
 
     @property
     def tools(self):
