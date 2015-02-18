@@ -30,7 +30,7 @@ graphics contexts must implement to serve as a matplotlib backend
     user interaction (key press, toolbar clicks, ..) and the actions in
     response to the user inputs.
 
-:class:`ToolbarBase`
+:class:`ToolContainerBase`
      The base class for the Toolbar class of each interactive backend.
 
 """
@@ -3571,7 +3571,7 @@ class NavigationBase(object):
         return self._tools[name]
 
 
-class ToolbarBase(object):
+class ToolContainerBase(object):
     """Base class for `Toolbar` implementation
 
      Attributes
