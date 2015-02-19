@@ -3573,13 +3573,13 @@ class NavigationBase(object):
 
 
 class ToolContainerBase(object):
-    """Base class for `Toolbar` implementation
+    """Base class for all tool containers, e.g. toolbars.
 
      Attributes
     ----------
     manager : `FigureManager` object that integrates this `Toolbar`
-    navigation : `NavigationBase` object that hold the tools that
-        this `Toolbar` wants to communicate with
+    navigation : `NavigationBase` object that holds the tools that
+        this `ToolContainer` wants to communicate with.
     """
 
     def __init__(self, navigation):
@@ -3601,7 +3601,7 @@ class ToolContainerBase(object):
         self.toggle_toolitem(event.tool.name, event.tool.toggled)
 
     def add_tools(self, tools):
-        """ Add multiple tools to `Navigation`
+        """ Add multiple tools to the container.
 
         Parameters
         ----------
@@ -3643,6 +3643,9 @@ class ToolContainerBase(object):
             warnings.warn('Tool %s unknown by our navigation.' % tool +
                           ' To add a tool to navigation, give a name.')
             return
+        elif name:
+            warnings.warn('Tool %s already in navigation, ignored name=%s' %
+                          (tool, name))
         tool = t
         image = self._get_image_filename(tool.image)
         toggle = getattr(tool, 'toggled', None) is not None
