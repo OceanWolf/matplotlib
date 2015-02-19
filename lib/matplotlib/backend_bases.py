@@ -3555,7 +3555,7 @@ class NavigationBase(object):
 
         return self._tools
 
-    def get_tool(self, name):
+    def get_tool(self, name, warn=True):
         """Return the tool object, also accepts the actual tool for convenience
 
         Parameters
@@ -3563,10 +3563,11 @@ class NavigationBase(object):
         name : String, ToolBase
             Name of the tool, or the tool itself
         """
-        if isinstance(name, tools.ToolBase) and tool.name in self._tools:
+        if isinstance(name, tools.ToolBase) and name.name in self._tools:
             return name
         if name not in self._tools:
-            warnings.warn("%s is not a tool controlled by Navigation" % name)
+            if warn:
+                warnings.warn("Navigation does not control tool %s" % name)
             return None
         return self._tools[name]
 
@@ -3631,20 +3632,22 @@ class ToolContainerBase(object):
             If given, and the above fails, we use this to create a new tool of
             type given by tool, and use this as the name of the tool.
         """
-        t = self.navigation.get_tool(tool)
+        t = self.navigation.get_tool(tool, False)
         if t is None:
-            if isinstance(tool, type):
+            if not (isinstance(tool, str) or isinstance(tool, type)):
+                # if not string nor class, then object, we need a class.
                 tool = tool.__class__
             if name is not None:
                 t = self.navigation.add_tool(name, tool, **kwargs)
         if t is None:
-            warning.warn('Cannot add tool %s'%tool)
+            warnings.warn('Tool %s unknown by our navigation.' % tool +
+                          ' To add a tool to navigation, give a name.')
             return
         tool = t
         image = self._get_image_filename(tool.image)
         toggle = getattr(tool, 'toggled', None) is not None
-        self.add_toolitem(tool.name, group, position, image,
-                                            tool.description, toggle)
+        self.add_toolitem(tool.name, group, position,
+                          image, tool.description, toggle)
         if toggle:
             self.navigation.nav_connect('tool_trigger_%s' % tool.name,
                                         self._tool_toggled_cbk)
