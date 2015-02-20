@@ -918,8 +918,10 @@ tools = {'home': ToolHome, 'back': ToolBack, 'forward': ToolForward,
          'viewpos': ToolViewsPositions,
          'cursor': 'ToolSetCursor',
          'rubberband': 'ToolRubberband'}
+"""Default tools"""
+
 toolbar_tools = [['navigation', ['home', 'back', 'forward']],
                   ['zoompan', ['zoom', 'pan']],
                   ['layout', ['subplots']],
                   ['io', ['save']]]
-"""Default tools"""
+"""Default tools in the toolbar"""

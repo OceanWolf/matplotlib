@@ -3381,16 +3381,13 @@ class NavigationBase(object):
         del self._tools[name]
 
     def add_tools(self, tools):
-        """ Add multiple tools to `Navigation`
+        """ Add multiple tools to `NavigationBase`
 
         Parameters
         ----------
         tools : {str: class_like}
-            The tools to add in the form of {name: tool}.
-
-        See Also
-        --------
-        add_tool : For definition of class_like.
+            The tools to add in a {name: tool} dict, see `add_tool` for more
+            info.
         """
 
         for name, tool in six.iteritems(tools):
@@ -3418,7 +3415,7 @@ class NavigationBase(object):
 
         See Also
         --------
-        backend_tools.ToolBase : The base class for tools.
+        matplotlib.backend_tools.ToolBase : The base class for tools.
         """
 
         tool_cls = self._get_cls_to_instantiate(tool)
@@ -3565,8 +3562,10 @@ class NavigationBase(object):
 
         Parameters
         -----------
-        name : String, ToolBase
+        name : str, ToolBase
             Name of the tool, or the tool itself
+        warn : bool
+            If this method should give warnings.
         """
         if isinstance(name, tools.ToolBase) and name.name in self._tools:
             return name
@@ -3609,12 +3608,11 @@ class ToolContainerBase(object):
 
         Parameters
         ----------
-        tools : List
+        tools : list
             List in the form
-            [[group1, [name1, name2 ...]][group2...]]
-            where group1 is the name of the group where the
-            Tool1, Tool2... are going to be added, and name1, name2... are the
-            names of the tools
+            [[group1, [tool1, tool2 ...]], [group2, [...]]]
+            Where the tools given by tool1, and tool2 will display in group1.
+            See `add_tool` for details.
         """
 
         for group, grouptools in tools:
@@ -3627,7 +3625,7 @@ class ToolContainerBase(object):
         Parameters
         ----------
         tool : tool_like
-            The tool to add, see NavigationBase.get_tool.
+            The tool to add, see `NavigationBase.get_tool`.
         group : str
             The name of the group to add this tool to.
         position : int (optional)
