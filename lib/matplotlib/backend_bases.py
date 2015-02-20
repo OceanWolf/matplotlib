@@ -3273,6 +3273,7 @@ class NavigationBase(object):
             - 'tool_message_event'
             - 'tool_removed_event'
             - 'tool_added_event'
+            - 'tool_keymap_changed_event'
 
             For every tool added a new event is created
 
@@ -3334,27 +3335,44 @@ class NavigationBase(object):
         for k in self.get_tool_keymap(name):
             del self._keys[k]
 
-    def set_tool_keymap(self, name, *keys):
+    def set_tool_keymap(self, name, *keys, **kwargs):
         """Set the keymap to associate with the specified tool
 
         Parameters
         ----------
         name : string
             Name of the Tool
-        keys : keys to associate with the Tool
+        keys : str, [str, ...]
+            keys to associate with the Tool, where sting can contain a comma
+            separated list, e.g. 'm,p,l'.
         """
 
         if name not in self._tools:
             raise AttributeError('%s not in Tools' % name)
+        send_event = kwargs.pop('send_event', True)
 
         self._remove_keys(name)
 
+        changed_tools = set()
         for key in keys:
             for k in validate_stringlist(key):
                 if k in self._keys:
                     warnings.warn('Key %s changed from %s to %s' %
                                   (k, self._keys[k], name))
+                    changed_maps.add(self._keys[k])
                 self._keys[k] = name
+
+        if send_event:
+            for tool in changed_tools:
+                self.keymap_changed_event(tool)
+            self.keymap_changed_event(name)
+
+    def keymap_changed_event(self, tool):
+        tool = self.get_tool(tool)
+
+        s = 'tool_keymap_changed_event'
+        event = ToolEvent(s, self, tool)
+        self._callbacks.process(s, event)
 
     def remove_tool(self, name):
         """Remove tool from `Navigation`
@@ -3431,7 +3449,7 @@ class NavigationBase(object):
         self._tools[name] = tool_cls(self, name, *args, **kwargs)
 
         if tool_cls.keymap is not None:
-            self.set_tool_keymap(name, tool_cls.keymap)
+            self.set_tool_keymap(name, tool_cls.keymap, send_event=False)
 
         # For toggle tools init the radio_group in self._toggled
         if getattr(tool_cls, 'toggled', False) is not False:
@@ -3591,6 +3609,16 @@ class ToolContainerBase(object):
         self.navigation.nav_connect('tool_message_event', self._message_cbk)
         self.navigation.nav_connect('tool_removed_event',
                                     self._remove_tool_cbk)
+        self.navigation.nav_connect('tool_keymap_changed_event',
+                                    self._keymap_changed)
+
+    def _keymap_changed(self, event):
+        self._set_description(event.tool)
+
+    def _set_description(self, tool):
+        desc = ' or '.join(self.navigation.get_tool_keymap(tool.name))
+        desc = ' (%s)' % desc if desc else ''
+        self.change_tool_description(tool.name, tool.description + desc)
 
     def _message_cbk(self, event):
         """Captures the 'tool_message_event' to set the message on the toolbar"""
@@ -3634,8 +3662,8 @@ class ToolContainerBase(object):
         tool = self.navigation.get_tool(tool)
         image = self._get_image_filename(tool.image)
         toggle = getattr(tool, 'toggled', None) is not None
-        self.add_toolitem(tool.name, group, position,
-                          image, tool.description, toggle)
+        self.add_toolitem(tool.name, group, position, image, toggle)
+        self._set_description(tool)
         if toggle:
             self.navigation.nav_connect('tool_trigger_%s' % tool.name,
                                         self._tool_toggled_cbk)
@@ -3666,7 +3694,7 @@ class ToolContainerBase(object):
         """
         self.navigation.tool_trigger_event(name, sender=self)
 
-    def add_toolitem(self, name, group, position, image, description, toggle):
+    def add_toolitem(self, name, group, position, image, toggle):
         """Add a toolitem to the container
 
         This method must get implemented per backend
@@ -3685,8 +3713,6 @@ class ToolContainerBase(object):
             Position of the tool within its group, if -1 it goes at the End
         image_file : String
             Filename of the image for the button or `None`
-        description : String
-            Description of the tool, used for the tooltips
         toggle : Bool
             * `True` : The button is a toggle (change the pressed/unpressed
               state between consecutive clicks)
@@ -3733,4 +3759,8 @@ class ToolContainerBase(object):
 
         """
 
+        raise NotImplementedError
+
+    def change_tool_description(self, name, description):
+        """Changes the description (tooltip) of the tool"""
         raise NotImplementedError

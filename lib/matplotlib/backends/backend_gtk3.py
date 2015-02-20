@@ -766,6 +766,12 @@ class ToolbarGTK3(ToolContainerBase, Gtk.Box):
         self._toolitems = {}
         self._setup_message_area()
 
+    def _validate_in_toolbar(self, name):
+        if name not in self._toolitems:
+            self.set_message('%s Not in toolbar' % name)
+            return False
+        return True
+
     def _setup_message_area(self):
         box = Gtk.Box()
         box.set_property("orientation", Gtk.Orientation.HORIZONTAL)
@@ -782,8 +788,7 @@ class ToolbarGTK3(ToolContainerBase, Gtk.Box):
         self.pack_end(sep, False, True, 0)
         sep.show_all()
 
-    def add_toolitem(self, name, group, position, image_file, description,
-                     toggle):
+    def add_toolitem(self, name, group, position, image_file, toggle):
         if toggle:
             tbutton = Gtk.ToggleToolButton()
         else:
@@ -800,10 +805,15 @@ class ToolbarGTK3(ToolContainerBase, Gtk.Box):
         # TODO implement groups positions
         self._toolbar.insert(tbutton, -1)
         signal = tbutton.connect('clicked', self._call_tool, name)
-        tbutton.set_tooltip_text(description)
         tbutton.show_all()
         self._toolitems.setdefault(name, [])
         self._toolitems[name].append((tbutton, signal))
+
+    def change_tool_description(self, name, description):
+        if not self._validate_in_toolbar(name):
+            return
+        for toolitem, signal in self._toolitems[name]:
+            toolitem.set_tooltip_text(description)
 
     def _call_tool(self, btn, name):
         self.trigger_tool(name)
@@ -820,8 +830,7 @@ class ToolbarGTK3(ToolContainerBase, Gtk.Box):
             toolitem.handler_unblock(signal)
 
     def remove_toolitem(self, name):
-        if name not in self._toolitems:
-            self.set_message('%s Not in toolbar' % name)
+        if not self._validate_in_toolbar(name):
             return
         for toolitem, signal in self._toolitems[name]:
             self._toolbar.remove(toolitem)
