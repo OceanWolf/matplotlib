@@ -30,9 +30,9 @@ import matplotlib
 from matplotlib._pylab_helpers import Gcf
 from matplotlib.backend_bases import RendererBase, GraphicsContextBase, \
      FigureManagerBase, FigureCanvasBase, NavigationToolbar2, cursors, TimerBase
-from matplotlib.backend_bases import ShowBase, ToolbarBase, NavigationBase
+from matplotlib.backend_bases import ShowBase, ToolContainerBase, NavigationBase
 from matplotlib.backend_tools import SaveFigureBase, ConfigureSubplotsBase, \
-    tools, SetCursorBase, RubberbandBase
+    tools, toolbar_tools, SetCursorBase, RubberbandBase
 
 from matplotlib.cbook import is_string_like, is_writable_file_like
 from matplotlib.colors import colorConverter
@@ -418,6 +418,7 @@ class FigureManagerGTK3(FigureManagerBase):
         self.toolbar = self._get_toolbar()
         if matplotlib.rcParams['toolbar'] == 'navigation':
             self.navigation.add_tools(tools)
+            self.toolbar.add_tools(toolbar_tools)
 
         # calculate size for window
         w = int (self.canvas.figure.bbox.width)
@@ -752,9 +753,9 @@ class RubberbandGTK3(RubberbandBase):
 ToolRubberband = RubberbandGTK3
 
 
-class ToolbarGTK3(ToolbarBase, Gtk.Box):
+class ToolbarGTK3(ToolContainerBase, Gtk.Box):
     def __init__(self, navigation):
-        ToolbarBase.__init__(self, navigation)
+        ToolContainerBase.__init__(self, navigation)
         Gtk.Box.__init__(self)
         self.set_property("orientation", Gtk.Orientation.VERTICAL)
 
@@ -763,7 +764,6 @@ class ToolbarGTK3(ToolbarBase, Gtk.Box):
         self.pack_start(self._toolbar, False, False, 0)
         self._toolbar.show_all()
         self._toolitems = {}
-        self._signals = {}
         self._setup_message_area()
 
     def _setup_message_area(self):
@@ -784,9 +784,6 @@ class ToolbarGTK3(ToolbarBase, Gtk.Box):
 
     def add_toolitem(self, name, group, position, image_file, description,
                      toggle):
-        if group is None:
-            return
-
         if toggle:
             tbutton = Gtk.ToggleToolButton()
         else:
@@ -805,8 +802,8 @@ class ToolbarGTK3(ToolbarBase, Gtk.Box):
         signal = tbutton.connect('clicked', self._call_tool, name)
         tbutton.set_tooltip_text(description)
         tbutton.show_all()
-        self._toolitems[name] = tbutton
-        self._signals[name] = signal
+        self._toolitems.setdefault(name, [])
+        self._toolitems[name].append((tbutton, signal))
 
     def _call_tool(self, btn, name):
         self.trigger_tool(name)
@@ -814,20 +811,20 @@ class ToolbarGTK3(ToolbarBase, Gtk.Box):
     def set_message(self, s):
         self.message.set_label(s)
 
-    def toggle_toolitem(self, name):
+    def toggle_toolitem(self, name, toggled):
         if name not in self._toolitems:
             return
-
-        status = self._toolitems[name].get_active()
-        self._toolitems[name].handler_block(self._signals[name])
-        self._toolitems[name].set_active(not status)
-        self._toolitems[name].handler_unblock(self._signals[name])
+        for toolitem, signal in self._toolitems[name]:
+            toolitem.handler_block(signal)
+            toolitem.set_active(toggled)
+            toolitem.handler_unblock(signal)
 
     def remove_toolitem(self, name):
         if name not in self._toolitems:
             self.set_message('%s Not in toolbar' % name)
             return
-        self._toolbar.remove(self._toolitems[name])
+        for toolitem, signal in self._toolitems[name]:
+            self._toolbar.remove(toolitem)
         del self._toolitems[name]
 
     def add_separator(self, pos=-1):

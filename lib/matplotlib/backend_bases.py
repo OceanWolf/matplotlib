@@ -30,7 +30,7 @@ graphics contexts must implement to serve as a matplotlib backend
     user interaction (key press, toolbar clicks, ..) and the actions in
     response to the user inputs.
 
-:class:`ToolbarBase`
+:class:`ToolContainerBase`
      The base class for the Toolbar class of each interactive backend.
 
 """
@@ -3381,23 +3381,19 @@ class NavigationBase(object):
         del self._tools[name]
 
     def add_tools(self, tools):
-        """ Add multiple tools to `Navigation`
+        """ Add multiple tools to `NavigationBase`
 
         Parameters
         ----------
-        tools : List
-            List in the form
-            [[group1, [(Tool1, name1), (Tool2, name2) ...]][group2...]]
-            where group1 is the name of the group where the
-            Tool1, Tool2... are going to be added, and name1, name2... are the
-            names of the tools
+        tools : {str: class_like}
+            The tools to add in a {name: tool} dict, see `add_tool` for more
+            info.
         """
 
-        for group, grouptools in tools:
-            for position, tool in enumerate(grouptools):
-                self.add_tool(tool[1], tool[0], group, position)
+        for name, tool in six.iteritems(tools):
+            self.add_tool(name, tool)
 
-    def add_tool(self, name, tool, group=None, position=None):
+    def add_tool(self, name, tool, *args, **kwargs):
         """Add tool to `NavigationBase`
 
         Add a tool to the tools controlled by Navigation
@@ -3408,14 +3404,18 @@ class NavigationBase(object):
 
         Parameters
         ----------
-        name : string
+        name : str
             Name of the tool, treated as the ID, has to be unique
-        tool : string or `matplotlib.backend_tools.ToolBase` derived class
-            Reference to find the class of the Tool to be added
-        group: String
-            Group to position the tool in
-        position : int or None (default)
-            Position within its group in the toolbar, if None, it goes at the end
+        tool : class_like, i.e. str or type
+            Reference to find the class of the Tool to added.
+
+        Notes
+        -----
+        args and kwargs get passed directly to the tools constructor.
+
+        See Also
+        --------
+        matplotlib.backend_tools.ToolBase : The base class for tools.
         """
 
         tool_cls = self._get_cls_to_instantiate(tool)
@@ -3426,9 +3426,10 @@ class NavigationBase(object):
         if name in self._tools:
             warnings.warn('A tool_cls with the same name already exist, '
                           'not added')
-            return
+            return self._tools[name]
 
-        self._tools[name] = tool_cls(self, name)
+        self._tools[name] = tool_cls(self, name, *args, **kwargs)
+
         if tool_cls.keymap is not None:
             self.set_tool_keymap(name, tool_cls.keymap)
 
@@ -3441,14 +3442,12 @@ class NavigationBase(object):
             else:
                 self._toggled.setdefault(tool_cls.radio_group, None)
 
-        self._tool_added_event(self._tools[name], group, position)
+        self._tool_added_event(self._tools[name])
+        return self._tools[name]
 
-    def _tool_added_event(self, tool, group, position):
+    def _tool_added_event(self, tool):
         s = 'tool_added_event'
-        event = ToolEvent(s,
-                          self,
-                          tool,
-                          data={'group': group, 'position': position})
+        event = ToolEvent(s, self, tool)
         self._callbacks.process(s, event)
 
     def _handle_toggle(self, tool, sender, canvasevent, data):
@@ -3558,37 +3557,38 @@ class NavigationBase(object):
 
         return self._tools
 
-    def get_tool(self, name):
+    def get_tool(self, name, warn=True):
         """Return the tool object, also accepts the actual tool for convenience
 
         Parameters
         -----------
-        name : String, ToolBase
+        name : str, ToolBase
             Name of the tool, or the tool itself
+        warn : bool
+            If this method should give warnings.
         """
-        if isinstance(name, tools.ToolBase):
+        if isinstance(name, tools.ToolBase) and name.name in self._tools:
             return name
         if name not in self._tools:
-            warnings.warn("%s is not a tool controlled by Navigation" % name)
+            if warn:
+                warnings.warn("Navigation does not control tool %s" % name)
             return None
         return self._tools[name]
 
 
-class ToolbarBase(object):
-    """Base class for `Toolbar` implementation
+class ToolContainerBase(object):
+    """Base class for all tool containers, e.g. toolbars.
 
      Attributes
     ----------
-    manager : `FigureManager` object that integrates this `Toolbar`
-    navigation : `NavigationBase` object that hold the tools that
-        this `Toolbar` wants to communicate with
+    navigation : `NavigationBase` object that holds the tools that
+        this `ToolContainer` wants to communicate with.
     """
 
     def __init__(self, navigation):
         self.navigation = navigation
 
         self.navigation.nav_connect('tool_message_event', self._message_cbk)
-        self.navigation.nav_connect('tool_added_event', self._add_tool_cbk)
         self.navigation.nav_connect('tool_removed_event',
                                     self._remove_tool_cbk)
 
@@ -3596,29 +3596,49 @@ class ToolbarBase(object):
         """Captures the 'tool_message_event' to set the message on the toolbar"""
         self.set_message(event.message)
 
-    def _tool_triggered_cbk(self, event):
+    def _tool_toggled_cbk(self, event):
         """Captures the 'tool-trigger-toolname
 
         This only gets used for toggled tools
         """
-        if event.sender is self:
-            return
+        self.toggle_toolitem(event.tool.name, event.tool.toggled)
 
-        self.toggle_toolitem(event.tool.name)
+    def add_tools(self, tools):
+        """ Add multiple tools to the container.
 
-    def _add_tool_cbk(self, event):
-        """Captures 'tool_added_event' and adds the tool to the toolbar"""
-        image = self._get_image_filename(event.tool.image)
-        toggle = getattr(event.tool, 'toggled', None) is not None
-        self.add_toolitem(event.tool.name,
-                          event.data['group'],
-                          event.data['position'],
-                          image,
-                          event.tool.description,
-                          toggle)
+        Parameters
+        ----------
+        tools : list
+            List in the form
+            [[group1, [tool1, tool2 ...]], [group2, [...]]]
+            Where the tools given by tool1, and tool2 will display in group1.
+            See `add_tool` for details.
+        """
+
+        for group, grouptools in tools:
+            for position, tool in enumerate(grouptools):
+                self.add_tool(tool, group, position)
+
+    def add_tool(self, tool, group, position=-1):
+        """Adds a tool to this container
+
+        Parameters
+        ----------
+        tool : tool_like
+            The tool to add, see `NavigationBase.get_tool`.
+        group : str
+            The name of the group to add this tool to.
+        position : int (optional)
+            The position within the group to place this tool.  Defaults to end.
+        """
+        tool = self.navigation.get_tool(tool)
+        image = self._get_image_filename(tool.image)
+        toggle = getattr(tool, 'toggled', None) is not None
+        self.add_toolitem(tool.name, group, position,
+                          image, tool.description, toggle)
         if toggle:
-            self.navigation.nav_connect('tool_trigger_%s' % event.tool.name,
-                                        self._tool_triggered_cbk)
+            self.navigation.nav_connect('tool_trigger_%s' % tool.name,
+                                        self._tool_toggled_cbk)
 
     def _remove_tool_cbk(self, event):
         """Captures the 'tool_removed_event' signal and removes the tool"""
@@ -3641,13 +3661,13 @@ class ToolbarBase(object):
         Parameters
         ----------
         name : String
-            Name(id) of the tool triggered from within the toolbar
+            Name(id) of the tool triggered from within the container
 
         """
         self.navigation.tool_trigger_event(name, sender=self)
 
     def add_toolitem(self, name, group, position, image, description, toggle):
-        """Add a toolitem to the toolbar
+        """Add a toolitem to the container
 
         This method must get implemented per backend
 
@@ -3687,18 +3707,20 @@ class ToolbarBase(object):
 
         pass
 
-    def toggle_toolitem(self, name):
+    def toggle_toolitem(self, name, toggled):
         """Toggle the toolitem without firing event
 
         Parameters
         ----------
         name : String
             Id of the tool to toggle
+        toggled : bool
+            Whether to set this tool as toggled or not.
         """
         raise NotImplementedError
 
     def remove_toolitem(self, name):
-        """Remove a toolitem from the `Toolbar`
+        """Remove a toolitem from the `ToolContainer`
 
         This method must get implemented per backend
 
