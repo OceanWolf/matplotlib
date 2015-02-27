@@ -63,10 +63,10 @@ class FigureManager(cbook.EventEmitter):
         self._callbacks.process(s, event)
 
     def destroy(self, *args):
-        self.window.destroy()
         self.canvas.destroy()
         if self.toolbar:
             self.toolbar.destroy()
+        self.window.destroy()
 
         self.mainloop.__del__()
 
