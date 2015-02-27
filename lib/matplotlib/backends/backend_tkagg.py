@@ -18,7 +18,8 @@ import matplotlib.backends.windowing as windowing
 import matplotlib
 from matplotlib.cbook import is_string_like
 from matplotlib.backend_bases import RendererBase, GraphicsContextBase
-from matplotlib.backend_bases import FigureManagerBase, FigureCanvasBase
+from matplotlib.backend_bases import (FigureManagerBase, FigureCanvasBase,
+                                      WindowBase, MainLoopBase)
 from matplotlib.backend_bases import NavigationToolbar2, cursors, TimerBase
 from matplotlib.backend_bases import ShowBase
 from matplotlib._pylab_helpers import Gcf
@@ -65,6 +66,15 @@ def draw_if_interactive():
         figManager =  Gcf.get_active()
         if figManager is not None:
             figManager.show()
+
+
+class MainLoop(MainLoopBase):
+    def begin(self):
+        Tk.mainloop()
+
+    def end(self):
+        Tk.Tk().quit()  # This doesn't look right but it works.
+
 
 class Show(ShowBase):
     def mainloop(self):
@@ -215,8 +225,10 @@ class FigureCanvasTkAgg(FigureCanvasAgg):
     """_keycode_lookup is used for badly mapped (i.e. no event.key_sym set)
        keys on apple keyboards."""
 
-    def __init__(self, figure, master=None, resize_callback=None):
-        FigureCanvasAgg.__init__(self, figure)
+    def __init__(self, figure, master=None, resize_callback=None, manager=None):
+        FigureCanvasAgg.__init__(self, figure, manager)
+        if manager is not None:
+            master = manager.window
         self._idle = True
         self._idle_callback = None
         t1,t2,w,h = self.figure.bbox.bounds
@@ -513,6 +525,100 @@ class FigureCanvasTkAgg(FigureCanvasAgg):
     def stop_event_loop(self):
         FigureCanvasBase.stop_event_loop_default(self)
     stop_event_loop.__doc__=FigureCanvasBase.stop_event_loop_default.__doc__
+
+    def destroy(self):
+        if self._idle_callback:
+            self._tkcanvas.after_cancel(self._idle_callback)
+
+    def pack(self, *args, **kwargs):
+        self._tkcanvas.pack(*args, **kwargs)
+
+    def update(self):
+        pass
+
+
+class WindowTkAgg(WindowBase, Tk.Tk):
+    positions = {'top': Tk.TOP, 'bottom': Tk.BOTTOM, 'left': Tk.LEFT,
+                 'right': Tk.RIGHT}
+    def __init__(self, title):
+        WindowBase.__init__(self, title)
+        Tk.Tk.__init__(self)
+        self.withdraw()
+
+        if Tk.TkVersion >= 8.5:
+            # put a mpl icon on the window rather than the default tk icon. Tkinter
+            # doesn't allow colour icons on linux systems, but tk >=8.5 has a iconphoto
+            # command which we call directly. Source:
+            # http://mail.python.org/pipermail/tkinter-discuss/2006-November/000954.html
+            icon_fname = os.path.join(rcParams['datapath'], 'images', 'matplotlib.gif')
+            icon_img = Tk.PhotoImage(file=icon_fname)
+            try:
+                self.tk.call('wm', 'iconphoto', self._w, icon_img)
+            except (SystemExit, KeyboardInterrupt):
+                # re-raise exit type Exceptions
+                raise
+            except:
+                # log the failure, but carry on
+                verbose.report('Could not load matplotlib icon: %s' % sys.exc_info()[1])
+
+        self.set_window_title(title)
+        self._shown = False
+
+    def add_element_to_window(self, element, expand, fill, padding, side='bottom'):
+        element.pack(side=WindowTkAgg.positions[side], fill=Tk.BOTH,
+                     expand=expand)
+        element.update()
+        try: # because canvas doesn't inherit from a Tk widget, so this fails.
+            return element['height']
+        except:
+            pass
+        return 1
+
+    def destroy(self):
+        Tk.Tk.destroy(self)
+
+    def show(self):
+        """
+        this function doesn't segfault but causes the
+        PyEval_RestoreThread: NULL state bug on win32
+        """
+        _focus = windowing.FocusManager()
+        if not self._shown:
+            def destroy(*args):
+                self.window = None
+                Gcf.destroy(self._num)
+            self.protocol('WM_DELETE_WINDOW', self.destroy_event)
+            self.deiconify()
+            # anim.py requires this
+            self.update()
+        else:
+            self.canvas.draw_idle()
+        self._shown = True
+
+    def set_fullscreen(self, fullscreen):
+        self.window.attributes('-fullscreen', fullscreen)
+
+    def get_window_title(self):
+        return self.title()
+
+    def set_window_title(self, title):
+        self.title(title)
+
+    def resize(self, width, height=None):
+        # before 09-12-22, the resize method takes a single *event*
+        # parameter. On the other hand, the resize method of other
+        # FigureManager class takes *width* and *height* parameter,
+        # which is used to change the size of the window. For the
+        # Figure.set_size_inches with forward=True work with Tk
+        # backend, I changed the function signature but tried to keep
+        # it backward compatible. -JJL
+
+        # when a single parameter is given, consider it as a event
+        if height is None:
+            width = width.width
+        else:
+            self.geometry("%dx%d" % (width, height))
+
 
 class FigureManagerTkAgg(FigureManagerBase):
     """
@@ -873,3 +979,5 @@ class ToolTip(object):
 
 FigureCanvas = FigureCanvasTkAgg
 FigureManager = FigureManagerTkAgg
+Window = WindowTkAgg
+Toolbar2 = NavigationToolbar2TkAgg
