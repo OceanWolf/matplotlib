@@ -127,10 +127,10 @@ else:
 
 import matplotlib
 from matplotlib import verbose
-from matplotlib.backend_bases import RendererBase, GraphicsContextBase,\
-     FigureCanvasBase, FigureManagerBase, NavigationToolbar2, \
-     cursors, TimerBase
-from matplotlib.backend_bases import ShowBase
+from matplotlib.backend_bases import (RendererBase, GraphicsContextBase,
+     FigureCanvasBase, FigureManagerBase, NavigationToolbar2,
+     cursors, TimerBase, WindowBase)
+from matplotlib.backend_bases import MainLoopBase, ShowBase
 from matplotlib.backend_bases import _has_pil
 
 from matplotlib._pylab_helpers import Gcf
@@ -701,7 +701,7 @@ class FigureCanvasWx(FigureCanvasBase, wx.Panel):
         wx.WXK_NUMPAD_DELETE   : 'delete',
         }
 
-    def __init__(self, parent, id, figure):
+    def __init__(self, figure, id=-1, parent=None, manager=None):
         """
         Initialise a FigureWx instance.
 
@@ -710,8 +710,14 @@ class FigureCanvasWx(FigureCanvasBase, wx.Panel):
           EVT_SIZE  (Resize event)
           EVT_PAINT (Paint event)
         """
-
-        FigureCanvasBase.__init__(self, figure)
+        if manager is not None:
+            parent = manager.window
+        elif isinstance(parent, Figure) or isinstance(figure, wx.Window):
+            # User calls bad API, a deprecation warning should get issued here.
+            temp = parent
+            parent = figure
+            figure = temp
+        FigureCanvasBase.__init__(self, figure, manager)
         # Set preferred window size hint - helps the sizer (if one is
         # connected)
         l,b,w,h = figure.bbox.bounds
@@ -1211,6 +1217,10 @@ class FigureCanvasWx(FigureCanvasBase, wx.Panel):
         """Mouse has entered the window."""
         FigureCanvasBase.enter_notify_event(self, guiEvent = evt)
 
+    def destroy(self, *args, **kwargs):
+        pass # Destroy throws a sefault atm on ctrl+w if we destroy this.
+        #self.Destroy(*args, **kwargs)
+
 
 ########################################################################
 #
@@ -1245,6 +1255,27 @@ def draw_if_interactive():
         figManager = Gcf.get_active()
         if figManager is not None:
             figManager.canvas.draw_idle()
+
+
+class MainLoop(MainLoopBase):
+    def __init__(self):
+        MainLoopBase.__init__(self)
+        wxapp = wx.GetApp()
+        if wxapp is None:
+            wxapp = wx.App(False)
+            wxapp.SetExitOnFrameDelete(True)
+            self._app = wxapp
+
+    def begin(self):
+        needmain = not wx.App.IsMainLoopRunning()
+        if needmain:
+            wxapp = wx.GetApp()
+            if wxapp is not None:
+                wxapp.MainLoop()
+
+    def end(self):
+        if hasattr(self, '_app'):
+            del self._app
 
 class Show(ShowBase):
     def mainloop(self):
@@ -1281,6 +1312,52 @@ def new_figure_manager_given_figure(num, figure):
         figmgr.frame.Show()
 
     return figmgr
+
+
+class Window(WindowBase, wx.Frame):
+    def __init__(self, title):
+        # On non-Windows platform, explicitly set the position - fix
+        # positioning bug on some Linux platforms
+        if wx.Platform == '__WXMSW__':
+            pos = wx.DefaultPosition
+        else:
+            pos = wx.Point(20,20)
+
+        WindowBase.__init__(self, title)
+        wx.Frame.__init__(self, parent=None, id=-1, pos=pos, title=title)
+
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(self.sizer)
+
+        bind(self, wx.EVT_CLOSE, self.destroy_event)
+
+    def add_element_to_window(self, element, expand, fill, pad, side='bottom'):
+        element.Fit()
+        self.sizer.Add(element, int(expand), wx.EXPAND)
+        w, h = element.GetSizeTuple()
+        if isinstance(element, NavigationToolbar2):
+            statbar = StatusBarWx(self)
+            self.SetStatusBar(statbar)
+            element.set_status_bar(statbar)
+            wsbar, hsbar = statbar.GetSizeTuple()
+            h += hsbar
+        return h
+
+    def show(self):
+        self.Show()
+
+    def destroy(self, *args, **kwargs):
+        self.Destroy(*args, **kwargs)
+
+    def get_window_title(self):
+        return self.GetTitle()
+
+    def set_window_title(self, title):
+        self.SetTitle(title)
+
+    def resize(self, width, height):
+        #Set the canvas size in pixels
+        self.SetSize((width, height))
 
 
 class FigureFrameWx(wx.Frame):
@@ -1593,7 +1670,7 @@ class SubplotToolWX(wx.Frame):
 
 class NavigationToolbar2Wx(NavigationToolbar2, wx.ToolBar):
 
-    def __init__(self, canvas):
+    def __init__(self, canvas, window=None):
         wx.ToolBar.__init__(self, canvas.GetParent(), -1)
         NavigationToolbar2.__init__(self, canvas)
         self.canvas = canvas
@@ -1753,6 +1830,9 @@ class NavigationToolbar2Wx(NavigationToolbar2, wx.ToolBar):
         self.EnableTool(self.wx_ids['Back'], can_backward)
         self.EnableTool(self.wx_ids['Forward'], can_forward)
 
+    def destroy(self):
+        self.Destroy()
+
 
 class StatusBarWx(wx.StatusBar):
     """
@@ -1863,3 +1943,4 @@ class PrintoutWx(wx.Printout):
 FigureCanvas = FigureCanvasWx
 FigureManager = FigureManagerWx
 Toolbar = NavigationToolbar2Wx
+Toolbar2 = NavigationToolbar2Wx

@@ -8,9 +8,9 @@ from matplotlib.figure import Figure
 
 from .backend_agg import FigureCanvasAgg
 from . import backend_wx    # already uses wxversion.ensureMinimal('2.8')
-from .backend_wx import FigureManagerWx, FigureCanvasWx, \
-    FigureFrameWx, DEBUG_MSG, NavigationToolbar2Wx, error_msg_wx, \
-    draw_if_interactive, show, Toolbar, backend_version
+from .backend_wx import (FigureManagerWx, FigureCanvasWx, Window, MainLoop,
+    FigureFrameWx, DEBUG_MSG, NavigationToolbar2Wx, error_msg_wx,
+    draw_if_interactive, show, Toolbar, backend_version)
 import wx
 
 
@@ -105,7 +105,7 @@ def new_figure_manager(num, *args, **kwargs):
     # in order to expose the Figure constructor to the pylab
     # interface we need to create the figure here
     DEBUG_MSG("new_figure_manager()", 3, None)
-    backend_wx._create_wx_app()
+    backend_wx._create_wx_app()  # TODO looks odd
 
     FigureClass = kwargs.pop('FigureClass', Figure)
     fig = FigureClass(*args, **kwargs)
@@ -116,8 +116,8 @@ def new_figure_manager_given_figure(num, figure):
     """
     Create a new figure manager instance for the given figure.
     """
-    frame = FigureFrameWxAgg(num, figure)
-    figmgr = frame.get_figure_manager()
+    frame = FigureFrameWxAgg(num, figure)  # TODO looks odd
+    figmgr = frame.get_figure_manager()  # TODO again
     if matplotlib.is_interactive():
         figmgr.frame.Show()
     return figmgr
@@ -192,3 +192,4 @@ def _WX28_clipped_agg_as_bitmap(agg, bbox):
 
 FigureCanvas = FigureCanvasWxAgg
 FigureManager = FigureManagerWx
+Toolbar2 = NavigationToolbar2WxAgg
