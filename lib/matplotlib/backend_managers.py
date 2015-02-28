@@ -98,7 +98,11 @@ class FigureManager(cbook.EventEmitter):
         # must be inited after the window, drawingArea and figure
         # attrs are set
         if rcParams['toolbar'] == 'toolbar2':
-            toolbar = Toolbar2(self.canvas, self.window)
+            # Short term hack until toolbar2 gets removed.
+            if 'qt' in str(FigureCanvas):
+                toolbar = Toolbar2(self.canvas, self.window, False)
+            else:
+                toolbar = Toolbar2(self.canvas, self.window)
         else:
             toolbar = None
         return toolbar

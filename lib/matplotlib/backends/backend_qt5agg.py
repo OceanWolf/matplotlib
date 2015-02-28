@@ -14,12 +14,12 @@ from matplotlib.figure import Figure
 from .backend_agg import FigureCanvasAgg
 from .backend_qt5 import QtCore
 from .backend_qt5 import QtGui
-from .backend_qt5 import FigureManagerQT
+from .backend_qt5 import Window, FigureManagerQT
 from .backend_qt5 import NavigationToolbar2QT
 ##### Modified Qt5 backend import
 from .backend_qt5 import FigureCanvasQT
 ##### not used
-from .backend_qt5 import show
+from .backend_qt5 import MainLoop, show
 from .backend_qt5 import draw_if_interactive
 from .backend_qt5 import backend_version
 ######
@@ -170,11 +170,11 @@ class FigureCanvasQTAgg(FigureCanvasQTAggBase,
       figure - A Figure instance
     """
 
-    def __init__(self, figure):
+    def __init__(self, figure, manager=None):
         if DEBUG:
             print('FigureCanvasQtAgg: ', figure)
-        FigureCanvasQT.__init__(self, figure)
-        FigureCanvasAgg.__init__(self, figure)
+        FigureCanvasQT.__init__(self, figure, manager)
+        FigureCanvasAgg.__init__(self, figure, manager)
         self._drawRect = None
         self.blitbox = None
         self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent)
@@ -198,3 +198,4 @@ class FigureCanvasQTAgg(FigureCanvasQTAggBase,
 
 FigureCanvas = FigureCanvasQTAgg
 FigureManager = FigureManagerQT
+Toolbar2 = NavigationToolbar2QT

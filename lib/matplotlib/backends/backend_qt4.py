@@ -36,7 +36,8 @@ from .backend_qt5 import (backend_version, SPECIAL_KEYS, SUPER, ALT, CTRL,
                         SHIFT, MODIFIER_KEYS, fn_name, cursord,
                         draw_if_interactive, _create_qApp, show, TimerQT,
                         MainWindow, FigureManagerQT, NavigationToolbar2QT,
-                        SubplotToolQt, error_msg_qt, exception_handler)
+                        SubplotToolQt, error_msg_qt, exception_handler,
+                        Window, MainLoop)
 
 from .backend_qt5 import FigureCanvasQT as FigureCanvasQT5
 
@@ -62,14 +63,14 @@ def new_figure_manager_given_figure(num, figure):
 
 class FigureCanvasQT(FigureCanvasQT5):
 
-    def __init__(self, figure):
+    def __init__(self, figure, manager=None):
         if DEBUG:
             print('FigureCanvasQt qt4: ', figure)
         _create_qApp()
 
         # Note different super-calling style to backend_qt5
         QtWidgets.QWidget.__init__(self)
-        FigureCanvasBase.__init__(self, figure)
+        FigureCanvasBase.__init__(self, figure, manager)
         self.figure = figure
         self.setMouseTracking(True)
         self._idle = True
@@ -77,6 +78,17 @@ class FigureCanvasQT(FigureCanvasQT5):
         # self.startTimer(backend_IdleEvent.milliseconds)
         w, h = self.get_width_height()
         self.resize(w, h)
+
+        # Give the keyboard focus to the figure instead of the
+        # manager; StrongFocus accepts both tab and click to focus and
+        # will enable the canvas to process event w/o clicking.
+        # ClickFocus only takes the focus is the window has been
+        # clicked
+        # on. http://qt-project.org/doc/qt-4.8/qt.html#FocusPolicy-enum or
+        # http://doc.qt.digia.com/qt/qt.html#FocusPolicy-enum
+        if manager:
+            self.setFocusPolicy(QtCore.Qt.StrongFocus)
+            self.setFocus()
 
     def wheelEvent(self, event):
         x = event.x()

@@ -11,13 +11,13 @@ from six import unichr
 import matplotlib
 
 from matplotlib.cbook import is_string_like
-from matplotlib.backend_bases import FigureManagerBase
+from matplotlib.backend_bases import WindowBase, FigureManagerBase
 from matplotlib.backend_bases import FigureCanvasBase
 from matplotlib.backend_bases import NavigationToolbar2
 
 from matplotlib.backend_bases import cursors
 from matplotlib.backend_bases import TimerBase
-from matplotlib.backend_bases import ShowBase
+from matplotlib.backend_bases import MainLoopBase, ShowBase
 
 from matplotlib._pylab_helpers import Gcf
 from matplotlib.figure import Figure
@@ -143,6 +143,18 @@ def _create_qApp():
             qApp = app
 
 
+class MainLoop(MainLoopBase):
+    def __init__(self):
+        MainLoopBase.__init__(self)
+        _create_qApp()
+
+    def begin(self):
+        # allow KeyboardInterrupt exceptions to close the plot window.
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        global qApp
+        qApp.exec_()
+
+
 class Show(ShowBase):
     def mainloop(self):
         # allow KeyboardInterrupt exceptions to close the plot window.
@@ -226,15 +238,14 @@ class FigureCanvasQT(QtWidgets.QWidget, FigureCanvasBase):
                # QtCore.Qt.XButton2: None,
                }
 
-    def __init__(self, figure):
+    def __init__(self, figure, manager=None):
         if DEBUG:
             print('FigureCanvasQt qt5: ', figure)
         _create_qApp()
-
         # NB: Using super for this call to avoid a TypeError:
         # __init__() takes exactly 2 arguments (1 given) on QWidget
         # PyQt5
-        super(FigureCanvasQT, self).__init__(figure=figure)
+        super(FigureCanvasQT, self).__init__(figure=figure, manager=manager)
         self.figure = figure
         self.setMouseTracking(True)
         self._idle = True
@@ -242,6 +253,17 @@ class FigureCanvasQT(QtWidgets.QWidget, FigureCanvasBase):
         # self.startTimer(backend_IdleEvent.milliseconds)
         w, h = self.get_width_height()
         self.resize(w, h)
+
+        # Give the keyboard focus to the figure instead of the
+        # manager; StrongFocus accepts both tab and click to focus and
+        # will enable the canvas to process event w/o clicking.
+        # ClickFocus only takes the focus is the window has been
+        # clicked
+        # on. http://qt-project.org/doc/qt-4.8/qt.html#FocusPolicy-enum or
+        # http://doc.qt.digia.com/qt/qt.html#FocusPolicy-enum
+        if manager:
+            self.setFocusPolicy(QtCore.Qt.StrongFocus)
+            self.setFocus()
 
     def __timerEvent(self, event):
         # hide until we can test and fix
@@ -442,6 +464,52 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMainWindow.closeEvent(self, event)
 
 
+class Window(WindowBase, MainWindow):
+    def __init__(self, title):
+        WindowBase.__init__(self, title)
+        MainWindow.__init__(self)
+        self.closing.connect(self.destroy_event)
+
+        self.setWindowTitle(title)
+        image = os.path.join(matplotlib.rcParams['datapath'],
+                             'images', 'matplotlib.png')
+        self.setWindowIcon(QtGui.QIcon(image))
+
+    def add_element_to_window(self, element, expand, fill, pad, side='bottom'):
+        h = element.sizeHint().height()
+        # TODO Hack until NavigationToolbar2 becomes obsolete
+        if type(element) == NavigationToolbar2QT:
+            self.addToolBar(element)
+            sb = self.statusBar()
+            element.message.connect(self._show_message)
+            return h + sb.sizeHint().height()
+        elif isinstance(element, FigureCanvasBase):
+            self.setCentralWidget(element)
+        return h
+
+    def show(self):
+        MainWindow.show(self)
+
+    def destroy(self, *args):
+        self.close()
+
+    def set_fullscreen(self, fullscreen):
+        if fullscreen:
+            self.window.showFullScreen()
+        else:
+            self.window.showNormal()
+
+    def get_window_title(self):
+        return str(self.windowTitle())
+
+    def set_window_title(self, title):
+        self.setWindowTitle(title)
+
+    @QtCore.Slot(str)
+    def _show_message(self, s):
+        # Fixes a PySide segfault.
+        self.statusBar().showMessage(s)
+
 class FigureManagerQT(FigureManagerBase):
     """
     Public attributes
@@ -473,7 +541,7 @@ class FigureManagerQT(FigureManagerBase):
         # clicked
         # on. http://qt-project.org/doc/qt-4.8/qt.html#FocusPolicy-enum or
         # http://doc.qt.digia.com/qt/qt.html#FocusPolicy-enum
-        self.canvas.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.canvas.setFocusPolicy(QtCore.Qt.StrongFocus) # TODO take a look at this
         self.canvas.setFocus()
 
         self.window._destroying = False
