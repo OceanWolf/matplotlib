@@ -2641,6 +2641,7 @@ class WindowBase(cbook.EventEmitter):
         """
         self.resize(width, height)
 
+
     def resize(self, width, height):
         """"For gui backends, resizes the window.
 
