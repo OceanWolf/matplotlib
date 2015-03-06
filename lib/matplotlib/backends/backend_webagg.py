@@ -70,6 +70,10 @@ def draw_if_interactive():
             figManager.canvas.draw_idle()
 
 
+class MainLoop(backend_bases.MainLoopBase):
+    pass
+
+
 class Show(backend_bases.ShowBase):
     def mainloop(self):
         WebAggApplication.initialize()
@@ -368,3 +372,5 @@ def ipython_inline_display(figure):
 
 
 FigureCanvas = FigureCanvasWebAgg
+Window = core.Window
+Toolbar2 = core.NavigationToolbar2WebAgg

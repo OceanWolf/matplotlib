@@ -423,13 +423,18 @@ class NavigationToolbar2WebAgg(backend_bases.NavigationToolbar2):
         self.canvas.send_event('save')
 
 
+class Window(backend_bases.WindowBase):
+    def add_element_to_window(self, element, expand, fill, pad, side='bottom'):
+        return 50
+
+
 class FigureManagerWebAgg(backend_bases.FigureManagerBase):
     ToolbarCls = NavigationToolbar2WebAgg
 
     def __init__(self, canvas, num):
         backend_bases.FigureManagerBase.__init__(self, canvas, num)
 
-        self.web_sockets = set()
+        self.web_sockets = set()  # TODO looks more like mainloop code to me?
 
         self.toolbar = self._get_toolbar(canvas)
 

@@ -2854,7 +2854,7 @@ class NavigationToolbar2(object):
         ('Save', 'Save the figure', 'filesave', 'save_figure'),
       )
 
-    def __init__(self, canvas):
+    def __init__(self, canvas, window=None):
         self.canvas = canvas
         canvas.toolbar = self
         # a dict from axes index to a list of view limits
