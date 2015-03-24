@@ -12,6 +12,10 @@ from __future__ import (absolute_import, division, print_function,
 #
 # - `backend_webagg.py` contains a concrete implementation of a basic
 #   application, implemented with tornado.
+#
+# Notes
+# js uses socket.send(json_string) to send to py WebSocket.on_message() (which most of it goes to manager.canvas.handle_event(array_from_json))
+# py uses WebSocket.send_json() or Websocket.send_binary (for images) to send to js socket._make_on_message_function(evt)
 
 import six
 
@@ -40,7 +44,7 @@ from matplotlib.figure import Figure
 from matplotlib._pylab_helpers import Gcf
 from . import backend_webagg_core as core
 from .backend_nbagg import TimerTornado
-
+import traceback
 
 def new_figure_manager(num, *args, **kwargs):
     """
@@ -71,7 +75,20 @@ def draw_if_interactive():
 
 
 class MainLoop(backend_bases.MainLoopBase):
-    pass
+    def begin(self):
+        WebAggApplication.initialize()
+
+        url = "http://127.0.0.1:{port}{prefix}".format(
+            port=WebAggApplication.port,
+            prefix=WebAggApplication.url_prefix)
+
+        if rcParams['webagg.open_in_browser']:
+            import webbrowser
+            webbrowser.open(url)
+        else:
+            print("To view figure, visit {0}".format(url))
+
+        WebAggApplication.start()
 
 
 class Show(backend_bases.ShowBase):
@@ -144,7 +161,7 @@ class WebAggApplication(tornado.web.Application):
 
         def get(self, fignum):
             fignum = int(fignum)
-            manager = Gcf.get_fig_manager(fignum)
+            manager = Gcf.get_fig_manager(fignum)  # TODO Gcf
 
             ws_uri = 'ws://{req.host}{prefix}/'.format(req=self.request,
                                                        prefix=self.url_prefix)
@@ -159,18 +176,20 @@ class WebAggApplication(tornado.web.Application):
     class AllFiguresPage(tornado.web.RequestHandler):
         def __init__(self, application, request, **kwargs):
             self.url_prefix = kwargs.pop('url_prefix', '')
+            print('In Allfigures page')
             return tornado.web.RequestHandler.__init__(self, application,
                                                        request, **kwargs)
 
         def get(self):
             ws_uri = 'ws://{req.host}{prefix}/'.format(req=self.request,
                                                        prefix=self.url_prefix)
+            print('AllFiguresPage.get')
             self.render(
                 "all_figures.html",
                 prefix=self.url_prefix,
                 ws_uri=ws_uri,
-                figures=sorted(
-                    list(Gcf.figs.items()), key=lambda item: item[0]),
+                #figures=sorted(
+                #    list(Gcf.figs.items()), key=lambda item: item[0]), # TODO Gcf
                 toolitems=core.NavigationToolbar2WebAgg.toolitems)
 
     class MplJs(tornado.web.RequestHandler):
@@ -184,7 +203,7 @@ class WebAggApplication(tornado.web.Application):
     class Download(tornado.web.RequestHandler):
         def get(self, fignum, fmt):
             fignum = int(fignum)
-            manager = Gcf.get_fig_manager(fignum)
+            manager = Gcf.get_fig_manager(fignum)  # TODO Gcf
 
             # TODO: Move this to a central location
             mimetypes = {
@@ -205,17 +224,30 @@ class WebAggApplication(tornado.web.Application):
             self.write(buff.getvalue())
 
     class WebSocket(tornado.websocket.WebSocketHandler):
+        # Each websocket controls a figure.
         supports_binary = True
+        
+        def __init__(self, *args, **kwargs):
+            tornado.websocket.WebSocketHandler.__init__(self, *args, **kwargs)
 
         def open(self, fignum):
+            # When websocket gets opened by the browser
+            print('WebSocket.open() with ', fignum)
+            if fignum == 'application':
+                # Using new code.
+                app = core.Application(sockets=[self])
+                app.start()
+                self.widget = app
+                return
             self.fignum = int(fignum)
-            self.manager = Gcf.get_fig_manager(self.fignum)
-            self.manager.add_web_socket(self)
+            self.manager = Gcf.get_fig_manager(self.fignum)  # TODO Gcf
+            self.manager.add_web_socket(self)  # TODO figure out how to add link this to the widget.
+            self.widget = self.manager
             if hasattr(self, 'set_nodelay'):
                 self.set_nodelay(True)
 
         def on_close(self):
-            self.manager.remove_web_socket(self)
+            self.widget.remove_web_socket(self)
 
         def on_message(self, message):
             message = json.loads(message)
@@ -225,7 +257,7 @@ class WebAggApplication(tornado.web.Application):
             if message['type'] == 'supports_binary':
                 self.supports_binary = message['value']
             else:
-                manager = Gcf.get_fig_manager(self.fignum)
+                manager = Gcf.get_fig_manager(self.fignum)  # TODO Gcf
                 # It is possible for a figure to be closed,
                 # but a stale figure UI is still sending messages
                 # from the browser.
@@ -233,6 +265,7 @@ class WebAggApplication(tornado.web.Application):
                     manager.handle_json(message)
 
         def send_json(self, content):
+            print('In send_json with the content:', content)
             self.write_message(json.dumps(content))
 
         def send_binary(self, blob):
@@ -270,7 +303,7 @@ class WebAggApplication(tornado.web.Application):
 
                 # Sends images and events to the browser, and receives
                 # events from the browser
-                (url_prefix + r'/([0-9]+)/ws', self.WebSocket),
+                (url_prefix + r'/([0-9]+|application)/ws', self.WebSocket),
 
                 # Handles the downloading (i.e., saving) of static images
                 (url_prefix + r'/([0-9]+)/download.([a-z0-9.]+)',

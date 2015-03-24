@@ -2322,6 +2322,26 @@ class _InstanceMethodPickler(object):
         return getattr(self.parent_obj, self.instancemethod_name)
 
 
+class Singleton(object):
+    """ A base class for singleton objects, code taken from
+    https://www.python.org/download/releases/2.2.3/descrintro/#__new__
+    """
+    def __new__(cls, *args, **kwds):
+        it = cls.__dict__.get("__it__")
+        if it is not None:
+            return it
+        cls.__it__ = it = object.__new__(cls)
+        it.init(*args, **kwds)
+        return it
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init(self, *args, **kwargs):
+        """Overide init not __init__ unless you want it called many times"""
+        pass
+
+
 # Numpy > 1.6.x deprecates putmask in favor of the new copyto.
 # So long as we support versions 1.6.x and less, we need the
 # following local version of putmask.  We choose to make a

@@ -2879,6 +2879,9 @@ class NavigationToolbar2(object):
         self.mode = ''  # a mode string for the status bar
         self.set_history_buttons()
 
+    def destroy(self):
+        pass
+
     def set_message(self, s):
         """Display a message on toolbar or in status bar"""
         pass
