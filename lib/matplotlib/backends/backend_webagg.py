@@ -138,6 +138,48 @@ class FigureCanvasWebAgg(core.FigureCanvasWebAggCore):
         backend_bases.FigureCanvasBase.stop_event_loop_default.__doc__
 
 
+class FigureCanvas(FigureCanvasWebAgg, core.WidgetSocket):
+    name = 'canvas'
+
+    def __init__(self, *args, **kwargs):
+        FigureCanvasWebAgg.__init__(self, *args, **kwargs)
+        core.WidgetSocket.__init__(self)
+
+    def handle_json(self, content):
+        if content['type'] == 'refresh':
+            self._force_full = True
+            self.draw_idle()
+            return
+        self.handle_event(content)
+
+    def handle_resize(self, event):
+        fig = self.figure
+        w, h = event.get('width', None), event.get('height', None)
+        
+        if w is None or h is None:
+            return
+
+        w,h = int(w), int(h)
+        # An attempt at approximating the figure size in pixels.
+        fig.set_size_inches(w / fig.dpi, h / fig.dpi)
+        
+        _, _, w, h = self.figure.bbox.bounds
+        # Acknowledge the resize, and force the viewer to update the
+        # canvas size to the figure's new size (which is hopefully
+        # identical or within a pixel or so).
+        self._png_is_old = True
+        self._send_event('resize', size=(w, h))
+        self.resize_event()
+        
+    def print_figure(self, file_like, format=None):
+        if isinstance(file_like, six.string_types):
+            # We wish to tell the browser to open a new window with just the figure.
+            fname = '/%s/%s.%s' % (self.wid, file_like, format)
+            self._send_event('open_download_window', url=fname)
+        else:
+            FigureCanvasWebAgg.print_figure(self, file_like, format=format)
+
+
 class WebAggApplication(tornado.web.Application):
     initialized = False
     started = False
@@ -176,20 +218,20 @@ class WebAggApplication(tornado.web.Application):
     class AllFiguresPage(tornado.web.RequestHandler):
         def __init__(self, application, request, **kwargs):
             self.url_prefix = kwargs.pop('url_prefix', '')
-            print('In Allfigures page')
             return tornado.web.RequestHandler.__init__(self, application,
                                                        request, **kwargs)
 
         def get(self):
             ws_uri = 'ws://{req.host}{prefix}/'.format(req=self.request,
                                                        prefix=self.url_prefix)
-            print('AllFiguresPage.get')
+
+            figures = None if core.Application._in_use else \
+                      sorted(list(Gcf.figs.items()), key=lambda item: item[0])
             self.render(
                 "all_figures.html",
                 prefix=self.url_prefix,
                 ws_uri=ws_uri,
-                #figures=sorted(
-                #    list(Gcf.figs.items()), key=lambda item: item[0]), # TODO Gcf
+                figures=figures,
                 toolitems=core.NavigationToolbar2WebAgg.toolitems)
 
     class MplJs(tornado.web.RequestHandler):
@@ -203,7 +245,6 @@ class WebAggApplication(tornado.web.Application):
     class Download(tornado.web.RequestHandler):
         def get(self, fignum, fmt):
             fignum = int(fignum)
-            manager = Gcf.get_fig_manager(fignum)  # TODO Gcf
 
             # TODO: Move this to a central location
             mimetypes = {
@@ -220,7 +261,12 @@ class WebAggApplication(tornado.web.Application):
             self.set_header('Content-Type', mimetypes.get(fmt, 'binary'))
 
             buff = six.BytesIO()
-            manager.canvas.print_figure(buff, format=fmt)
+            
+            try:
+                canvas = core.Application.get_widget_by_wid(fignum)
+            except:
+                canvas = Gcf.get_fig_manager(fignum).canvas
+            canvas.print_figure(buff, format=fmt)
             self.write(buff.getvalue())
 
     class WebSocket(tornado.websocket.WebSocketHandler):
@@ -232,21 +278,25 @@ class WebAggApplication(tornado.web.Application):
 
         def open(self, fignum):
             # When websocket gets opened by the browser
-            print('WebSocket.open() with ', fignum)
             if fignum == 'application':
                 # Using new code.
-                app = core.Application(sockets=[self])
-                app.start()
+                app = core.Application()
+                app.add_web_socket(self)
                 self.widget = app
                 return
+            elif fignum.startswith('widget'):
+                wid = fignum[7:]
+                self.widget = core.Application().connect_ws(wid, self)
+                return
             self.fignum = int(fignum)
-            self.manager = Gcf.get_fig_manager(self.fignum)  # TODO Gcf
-            self.manager.add_web_socket(self)  # TODO figure out how to add link this to the widget.
+            self.manager = Gcf.get_fig_manager(self.fignum)
+            self.manager.add_web_socket(self)
             self.widget = self.manager
             if hasattr(self, 'set_nodelay'):
                 self.set_nodelay(True)
 
         def on_close(self):
+            
             self.widget.remove_web_socket(self)
 
         def on_message(self, message):
@@ -256,8 +306,10 @@ class WebAggApplication(tornado.web.Application):
             # whole.
             if message['type'] == 'supports_binary':
                 self.supports_binary = message['value']
-            else:
-                manager = Gcf.get_fig_manager(self.fignum)  # TODO Gcf
+            elif(hasattr(self, 'widget')):
+                self.widget.handle_json(message)
+            else:  # TODO old code remove MEP 27!
+                manager = Gcf.get_fig_manager(self.fignum)
                 # It is possible for a figure to be closed,
                 # but a stale figure UI is still sending messages
                 # from the browser.
@@ -265,7 +317,6 @@ class WebAggApplication(tornado.web.Application):
                     manager.handle_json(message)
 
         def send_json(self, content):
-            print('In send_json with the content:', content)
             self.write_message(json.dumps(content))
 
         def send_binary(self, blob):
@@ -303,7 +354,7 @@ class WebAggApplication(tornado.web.Application):
 
                 # Sends images and events to the browser, and receives
                 # events from the browser
-                (url_prefix + r'/([0-9]+|application)/ws', self.WebSocket),
+                (url_prefix + r'/([0-9]+|application|widget_[0-9]+)/ws', self.WebSocket),
 
                 # Handles the downloading (i.e., saving) of static images
                 (url_prefix + r'/([0-9]+)/download.([a-z0-9.]+)',
@@ -404,6 +455,6 @@ def ipython_inline_display(figure):
         port=WebAggApplication.port).decode('utf-8')
 
 
-FigureCanvas = FigureCanvasWebAgg
+#FigureCanvas = FigureCanvasWebAgg  # TODO this breaks BC!
 Window = core.Window
-Toolbar2 = core.NavigationToolbar2WebAgg
+Toolbar2 = core.Toolbar2

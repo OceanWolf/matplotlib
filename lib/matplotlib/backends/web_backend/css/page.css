@@ -80,3 +80,13 @@ span#login_widget {
     margin: 10px;
 }
 
+.mpl-window
+{
+    display: inline-flex;
+    flex-direction: column;
+}
+
+.mpl-window > div
+{
+    flex-shrink: 0;
+}

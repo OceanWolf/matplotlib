@@ -140,53 +140,67 @@ def _handle_key(key):
 
 
 class WidgetSocket(object):
-    def __init__(self, sockets=[]):
-        self.web_sockets = set(sockets)
+    INIT, READY = range(2)
+    def __init__(self):
+        self.web_sockets = set() # Generally one websocket per browser window.
+        self._onload_callbacks = []  # TODO this should use weakrefs...
+        self.status = WidgetSocket.INIT
+        self.wid = hash(self)
 
     def add_web_socket(self, web_socket):
         assert hasattr(web_socket, 'send_binary')
         assert hasattr(web_socket, 'send_json')
 
         self.web_sockets.add(web_socket)
+        
+        #if self.status == WidgetSocket.INIT:
+        self.status = WidgetSocket.READY
+        for event_type, kwargs in self._onload_callbacks:
+            self._send_event(event_type, sockets=[web_socket], **kwargs)
 
     def remove_web_socket(self, web_socket):
         self.web_sockets.remove(web_socket)
 
-    def handle_json(self, content):  # TODO perhaps this needs improvement?
-        pass
+    def handle_json(self, content):
+        raise NotImplementedError()
 
     def _send_event(self, event_type, **kwargs):
-        payload = {'type': event_type}
-        payload.update(kwargs)
-        for ws in self.web_sockets:
+        if self.status == WidgetSocket.INIT:
+            self._onload_callbacks.append((event_type, kwargs))
+            return
+        for ws in kwargs.pop('sockets', self.web_sockets):
+            payload = {'type': event_type}
+            payload.update(kwargs)
             ws.send_json(payload)
 
 
 class Application(cbook.Singleton, WidgetSocket):
     """Class to manage bootstrap communication between python and browser"""
     _status = 0  # 0 for no instance yet; 1 for init'ed; 2 for started.
-    _callbacks = []
+    widgetsockets = {}
+    
+    # TODO Temporary flag to see if the user wants to use the old Gcf version
+    _in_use = True
 
-    def init(self, sockets=[]):
-        WidgetSocket.__init__(self, sockets=sockets)
+    def init(self):
+        WidgetSocket.__init__(self)
         # Dict of sockets as keys and the widgets as values due to 1-to-1 relationship.
-        self.widgetsockets = {}
         Application._status = 1
-
-    def start(self):
-        if self._status is not 1:
-            return
-        for widget, kwargs in Application._callbacks:
-            self.init_widget(widget, **kwargs)
 
     @classmethod
     def init_widget(cls, widget, **kwargs):
-        if cls._status > 0:
-            app = cls()
-            app._send_event('create_'+widget.name, wid=hash(widget), **kwargs)
-        else:
-            # TODO make weakref
-            cls._callbacks.append((widget, kwargs))
+        app = cls()
+        app.widgetsockets[widget.wid] = widget  # TODO make weakref
+        app._send_event('create_'+widget.name, wid=widget.wid, **kwargs)
+
+    @classmethod
+    def get_widget_by_wid(cls, wid):
+        return cls.widgetsockets[wid]
+
+    def connect_ws(self, wid, ws):
+        widget = self.widgetsockets[int(wid)]
+        widget.add_web_socket(ws)
+        return widget  # TODO this should use weakrefs.
 
 
 class FigureCanvasWebAggCore(backend_agg.FigureCanvasAgg):
@@ -230,7 +244,10 @@ class FigureCanvasWebAggCore(backend_agg.FigureCanvasAgg):
         finally:
             backend_agg.RendererAgg.lock.release()
             # Swap the frames
-            self.manager.refresh_all()
+            if isinstance(self, WidgetSocket):
+                self.refresh_all()
+            else:  # TODO remove later MEP 27
+                self.manager.refresh_all()
 
     def draw_idle(self):
         self.send_event("draw")
@@ -376,7 +393,7 @@ class FigureCanvasWebAggCore(backend_agg.FigureCanvasAgg):
         elif e_type == 'refresh':
             figure_label = self.figure.get_label()
             if not figure_label:
-                figure_label = "Figure {0}".format(self.manager.num)  # TODO refactor me out of here!
+                figure_label = "Figure {0}".format(self.manager.num)
             self.send_event('figure_label', label=figure_label)
             self._force_full = True
             self.draw_idle()
@@ -409,7 +426,10 @@ class FigureCanvasWebAggCore(backend_agg.FigureCanvasAgg):
         self.send_event('image_mode', mode=self._current_image_mode)
 
     def send_event(self, event_type, **kwargs):
-        self.manager._send_event(event_type, **kwargs)
+        if isinstance(self, WidgetSocket):
+            self._send_event(event_type, **kwargs)
+        else:
+            self.manager._send_event(event_type, **kwargs)
 
     def start_event_loop(self, timeout):
         backend_bases.FigureCanvasBase.start_event_loop_default(
@@ -421,6 +441,12 @@ class FigureCanvasWebAggCore(backend_agg.FigureCanvasAgg):
         backend_bases.FigureCanvasBase.stop_event_loop_default(self)
     stop_event_loop.__doc__ = \
         backend_bases.FigureCanvasBase.stop_event_loop_default.__doc__
+
+    def refresh_all(self):
+        if self.web_sockets:
+            diff = self.get_diff_image()
+            for s in self.web_sockets:
+                s.send_binary(diff)
 
 
 _JQUERY_ICON_CLASSES = {
@@ -470,21 +496,62 @@ class NavigationToolbar2WebAgg(backend_bases.NavigationToolbar2):
         self.canvas.send_event(
             "rubberband", x0=-1, y0=-1, x1=-1, y1=-1)
 
-    def save_figure(self, *args):  # TODO check if this comes new as of master.
+    def save_figure(self, *args):
         """Save the current figure"""
         self.canvas.send_event('save')
+
+
+class Toolbar2(NavigationToolbar2WebAgg, WidgetSocket):
+    name = 'toolbar2'
+    def __init__(self, canvas, window=None):
+        NavigationToolbar2WebAgg.__init__(self, canvas, window)
+        WidgetSocket.__init__(self)
+
+    def set_message(self, message):
+        if message != self.message:
+            self._send_event("message", message=message)
+        self.message = message
+
+    def save(self, content):
+        self.canvas.print_figure('download', format=content['format'])
+
+    def handle_json(self, content):
+        # TODO: Be more suspicious of the input
+        getattr(self,content['name'])(content)
 
 
 class Window(backend_bases.WindowBase, WidgetSocket):
     name = 'window'
 
+    def __init__(self, title):
+        backend_bases.WindowBase.__init__(self, title)
+        WidgetSocket.__init__(self)
+        
+        self.set_window_title(title)
+        self._widgets = {'top': [], 'bottom': []}
+
     def add_element_to_window(self, element, expand, fill, pad, side='bottom'):
-        return 50
+        self._widgets[side].append((element, fill))
+        return 50  # TODO fix this
 
     def show(self):
         #if not Application.started:
         #    raise Exception('Application has yet to start.')
         Application.init_widget(self)
+        iters = [self._widgets['top'], reversed(self._widgets['bottom'])]
+        for it in iters:
+            for element, fill in it:
+                Application.init_widget(element, parent=hash(self), fill=fill)
+
+
+    def resize(self, width, height):
+        self._send_event('resize', size=(width, height))
+
+    def set_window_title(self, title):
+        self._send_event('figure_label', label=title)
+
+    def handle_json(self, content):
+        raise NotImplementedError()
 
 
 class FigureManagerWebAgg(backend_bases.FigureManagerBase):
@@ -492,8 +559,8 @@ class FigureManagerWebAgg(backend_bases.FigureManagerBase):
 
     def __init__(self, canvas, num):
         backend_bases.FigureManagerBase.__init__(self, canvas, num)
-
-        self.web_sockets = set()  # TODO looks more like mainloop code to me?
+        Application._in_use = False
+        self.web_sockets = set()
 
         self.toolbar = self._get_toolbar(canvas)
 
@@ -518,17 +585,17 @@ class FigureManagerWebAgg(backend_bases.FigureManagerBase):
 
         self.web_sockets.add(web_socket)
 
-        _, _, w, h = self.canvas.figure.bbox.bounds  # TODO Check we already have this in new FigureManager class.
-        self.resize(w, h)  # TODO move these lines to set_default_size me think...
+        _, _, w, h = self.canvas.figure.bbox.bounds
+        self.resize(w, h)
         self._send_event('refresh')
 
     def remove_web_socket(self, web_socket):
         self.web_sockets.remove(web_socket)
 
     def handle_json(self, content):
-        self.canvas.handle_event(content)  # TODO refactor this.
+        self.canvas.handle_event(content)
 
-    def refresh_all(self):  # TODO refactor this into canvas!
+    def refresh_all(self):
         if self.web_sockets:
             diff = self.canvas.get_diff_image()
             for s in self.web_sockets:
@@ -553,7 +620,7 @@ class FigureManagerWebAgg(backend_bases.FigureManagerBase):
                 toolitems.append(['', '', '', ''])
             else:
                 toolitems.append([name, tooltip, image, method])
-        output.write("mpl.toolbar_items = {0};\n\n".format(  # TODO this goes near the end of mpl.js
+        output.write("mpl.toolbar_items = {0};\n\n".format(
             json.dumps(toolitems)))
 
         extensions = []

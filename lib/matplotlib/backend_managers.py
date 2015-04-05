@@ -56,7 +56,7 @@ class FigureManager(cbook.EventEmitter):
     def __init__(self, figure, num):
         cbook.EventEmitter.__init__(self)
         self.num = num
-        print('dadada')
+
         self._mainloop = MainLoop()
         self.window = Window('Figure %d' % num)
         self.window.mpl_connect('window_destroy_event', self._destroy)

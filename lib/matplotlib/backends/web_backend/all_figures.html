@@ -10,8 +10,31 @@
     <script src="{{ prefix }}/mpl.js"></script>
 
     <script>
-      ws_uri = "{{ ws_uri }}";
-      loop = new mpl.application()
+      $(document).ready(function() {
+        // TODO need way to call old code for backward compatibility
+        ws_uri = "{{ ws_uri }}";
+        var main_div = $('div#figures');
+        {% if figures is not None  %}
+            {% for (fig_id, fig_manager) in figures %}
+                $(document).ready(
+                function() {
+                var main_div = $('div#figures');
+                var figure_div = $('<div id="figure-div"/>')
+                main_div.append(figure_div);
+                var websocket_type = mpl.get_websocket_type();
+                var websocket = new websocket_type(
+                "{{ ws_uri }}" + "{{ fig_id }}" + "/ws");
+                var fig = new mpl.figure(
+                "{{ fig_id }}", websocket, mpl_ondownload, figure_div);
+                fig.focus_on_mouseover = true;
+                $(fig.canvas).attr('tabindex', {{ fig_id }});
+                }
+                );
+            {% end %}
+        {% else %}
+            loop = new mpl.application({'figure_wrapper': main_div})
+        {% end %}
+      });
     </script>
 
   <title>MPL | WebAgg current figures</title>
