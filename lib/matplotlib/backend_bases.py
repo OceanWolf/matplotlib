@@ -1075,7 +1075,7 @@ class GraphicsContextBase(object):
         """
         Set the linewidth in points
         """
-        self._linewidth = w
+        self._linewidth = float(w)
 
     def set_linestyle(self, style):
         """
@@ -2715,6 +2715,28 @@ class WindowBase(cbook.EventEmitter):
         place : string
             The location to place the element, either compass points north,
             east, south, west, or center.
+        """
+        pass
+
+    def replace_element(self, oldelement, newelement):
+        """Replaces a gui widget for another
+
+        Parameters
+        ----------
+        oldelement: A gui element.
+            The element to be replaced
+        newelement: A gui element.
+            The replacement element
+        """
+        pass
+
+    def remove_element(self, element):
+        """Removes a widget
+
+        Parameters
+        ----------
+        element: A gui element
+            Element to be removed from the gui
         """
         pass
 
