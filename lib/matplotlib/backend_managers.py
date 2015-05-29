@@ -75,21 +75,18 @@ class FigureManager(cbook.EventEmitter):
         cbook.EventEmitter.__init__(self)
         self.num = num
 
+        self._h = 0
+        self._w = 0
+        self._figure = None
+        self.key_press_handler_id = None
+
         self._backend = get_backend()
         self._mainloop = self._backend.MainLoop()
+
         self.window = self._backend.Window('Figure %d' % num)
         self.window.mpl_connect('window_destroy_event', self._destroy)
 
-        self.canvas = self._backend.FigureCanvas(figure, manager=self)
-
-        self.key_press_handler_id = self.canvas.mpl_connect('key_press_event',
-            self.key_press) if rcParams['toolbar'] != 'toolmanager' else None
-
-        w = int(self.canvas.figure.bbox.width)
-        h = int(self.canvas.figure.bbox.height)
-
-        self.window.add_element(self.canvas, True, 'center')
-
+        self.figure = figure
         self.toolmanager = self._get_toolmanager()
         self.toolbar = self._get_toolbar()
 
@@ -98,29 +95,62 @@ class FigureManager(cbook.EventEmitter):
             if self.toolbar:
                 tools.add_tools_to_container(self.toolbar)
                 self.statusbar = self._backend.Statusbar(self.toolmanager)
-                h += self.window.add_element(self.statusbar, False, 'south')
+                self._h += self.window.add_element(self.statusbar,
+                                                   False,
+                                                   'south')
 
         if self.toolbar is not None:
-            h += self.window.add_element(self.toolbar, False, 'south')
+            self._h += self.window.add_element(self.toolbar, False, 'south')
 
-        self.window.set_default_size(w, h)
+        self.window.set_default_size(self._w, self._h)
         self._full_screen_flag = False
 
         if is_interactive():
             self.window.show()
 
+    def _add_figure_to_window(self, figure):
+        self._w += int(figure.bbox.width)
+        self._h += int(figure.bbox.height)
+        self.window.add_element(figure.canvas, True, 'center')
+        self.window.set_default_size(self._w, self._h)
+        figure.canvas.show()
+
+    @property
+    def figure(self):
+        return self._figure
+
+    @figure.setter
+    def figure(self, figure):
+        if self.key_press_handler_id:
+            self.figure.canvas.mpl_disconnect(self.key_press_handler_id)
+
+        if not figure.canvas:
+            self._backend.FigureCanvas(figure, manager=self)
+
+        if rcParams['toolbar'] != 'toolmanager':
+            self.key_press_handler_id = figure.canvas.mpl_connect(
+                'key_press_event', self.key_press)
+
+        if not self._figure:
+            self._add_figure_to_window(figure)
+        else:
+            self.window.replace_element(self._figure.canvas, figure.canvas)
+
+        self._figure = figure
+        # TODO: emit message replacing figure to be captured by toolmanager
+
         def notify_axes_change(fig):
             'this will be called whenever the current axes is changed'
             if self.toolmanager is None and self.toolbar is not None:
                 self.toolbar.update()
-        self.canvas.figure.add_axobserver(notify_axes_change)
+        figure.add_axobserver(notify_axes_change)
 
     def key_press(self, event):
         """
         Implement the default mpl key bindings defined at
         :ref:`key-event-handling`
         """
-        key_press_handler(event, self.canvas, self.canvas.toolbar)
+        key_press_handler(event, self.figure.canvas, self.toolbar)
 
     def _destroy(self, event=None):
         # Callback from the when the window wants to destroy itself
@@ -132,7 +162,8 @@ class FigureManager(cbook.EventEmitter):
         """Called to destroy this FigureManager, gets called by Gcf through
         event magic.
         """
-        self.canvas.destroy()
+        if self.figure and self.figure.canvas:
+            self.figure.canvas.destroy()
         if self.toolbar:
             self.toolbar.destroy()
         self.window.destroy()
@@ -173,7 +204,7 @@ class FigureManager(cbook.EventEmitter):
         if rcParams['toolbar'] == 'toolmanager':
             toolbar = self._backend.Toolbar(self.toolmanager)
         elif rcParams['toolbar'] == 'toolbar2':
-            toolbar = self._backend.Toolbar2(self.canvas, self.window)
+            toolbar = self._backend.Toolbar2(self.figure.canvas, self.window)
         else:
             toolbar = None
         return toolbar
@@ -181,7 +212,7 @@ class FigureManager(cbook.EventEmitter):
     def _get_toolmanager(self):
         # must be initialised after toolbar has been setted
         if rcParams['toolbar'] != 'toolbar2':
-            toolmanager = ToolManager(self.canvas)
+            toolmanager = ToolManager(self.figure.canvas)
         else:
             toolmanager = None
         return toolmanager
