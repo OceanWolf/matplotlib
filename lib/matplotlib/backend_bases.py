@@ -1712,7 +1712,8 @@ class FigureCanvasBase(object):
         register_backend('tiff', 'matplotlib.backends.backend_agg',
                          'Tagged Image File Format')
 
-    def __init__(self, figure, manager=None):
+    def __init__(self, figure, manager=None, backend=None, **kwargs):
+        self._backend = backend
         figure.set_canvas(self)
         self.figure = figure
         # a dictionary from event name to a dictionary that maps cid->func
@@ -1727,6 +1728,10 @@ class FigureCanvasBase(object):
         self.toolbar = None  # NavigationToolbar2 will set me
         self._is_saving = False
         self.manager = manager
+
+    @property
+    def backend(self):
+        return self._backend
 
     def is_saving(self):
         """
