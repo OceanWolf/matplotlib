@@ -225,6 +225,9 @@ class FigureCanvasGTK3(FigureCanvasBase, Gtk.DrawingArea):
         default_context = GLib.main_context_get_thread_default() or GLib.main_context_default()
         self._idle_event_source = default_context.find_source_by_id(self._idle_event_id)
 
+    def focus(self):
+        self.grab_focus()
+
     def destroy(self):
         #Gtk.DrawingArea.destroy(self)
         self.close_event()
